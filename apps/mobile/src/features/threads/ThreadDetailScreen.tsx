@@ -348,6 +348,16 @@ function ThreadVisitWatermark(props: {
   const lastDispatchedVisitRef = useRef<string | null>(null);
   const lastVisitDispatchRef = useRef({ threadKey: selectedThreadKey, at: 0 });
   const selectedThreadId = thread.id;
+  const snoozedUntil = thread.snoozedUntil;
+  // A scheduled wake brings no shell update, so re-render when it passes.
+  const [, setWakeTick] = useState(0);
+  useEffect(() => {
+    if (!showContent || snoozedUntil == null) return;
+    const delay = Date.parse(snoozedUntil) - Date.now();
+    if (!(delay > 0)) return;
+    const timer = setTimeout(() => setWakeTick((tick) => tick + 1), delay);
+    return () => clearTimeout(timer);
+  }, [showContent, snoozedUntil]);
   const selectedThreadWokeAt = threadWokeAt(thread, {
     now: new Date().toISOString(),
   });
