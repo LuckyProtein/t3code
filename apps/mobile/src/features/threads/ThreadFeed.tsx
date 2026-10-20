@@ -2064,7 +2064,7 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
           unavailable={false}
           alt={image.alt}
           actionsSource={media?.source.actionsSource}
-          onPressPreview={(source) => setExpandedFile((current) => current ?? source)}
+          onPressPreview={onPressPreview}
         />
       );
     }
@@ -2082,7 +2082,7 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
         alt={image.alt}
         srcFragment={markdownImageSourceFragment(image.href)}
         actionsSource={media?.source.actionsSource}
-        onPressPreview={(source) => setExpandedFile((current) => current ?? source)}
+        onPressPreview={onPressPreview}
       />
     );
   };
@@ -2111,7 +2111,7 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
             ? { ...actionsSource, resource: viewedImage.resource }
             : undefined
         }
-        onPressPreview={(source) => setExpandedFile((current) => current ?? source)}
+        onPressPreview={onPressPreview}
       />
     ) : null;
   };
