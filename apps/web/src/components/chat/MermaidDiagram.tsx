@@ -113,6 +113,8 @@ export function MermaidDiagram({
       links: false,
       images: false,
       zoom: false,
+      // Keep the author's direction; a wide diagram scales down to fit instead of turning vertical.
+      autoDirection: false,
       sanitize: sanitizeDiagramSvg,
       onRender: () => setRenderError(null),
       onError: (error) =>
