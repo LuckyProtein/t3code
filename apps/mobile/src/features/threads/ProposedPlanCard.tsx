@@ -9,11 +9,11 @@ import { useRef, useState, type ReactNode } from "react";
 import { View } from "react-native";
 
 import { AppText as Text } from "../../components/ui/AppText";
+import { Button } from "../../components/ui/Button";
 import * as Dialog from "../../components/ui/Dialog";
 import { projectEnvironment } from "../../state/projects";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { CopyTextButton } from "./CopyTextButton";
-import { RequestActionButton } from "./RequestActionButton";
 
 export function ProposedPlanCard(props: {
   readonly environmentId: EnvironmentId;
@@ -63,7 +63,7 @@ export function ProposedPlanCard(props: {
       </View>
       {props.renderMarkdown(stripDisplayedPlanMarkdown(props.markdown))}
       <View className="flex-row">
-        <RequestActionButton
+        <Button
           label={saving ? "Saving..." : "Save to workspace"}
           tone="secondary"
           disabled={!canWrite || !props.workspaceRoot || saving}
