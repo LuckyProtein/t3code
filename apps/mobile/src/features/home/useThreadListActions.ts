@@ -127,7 +127,11 @@ function useThreadActionExecutor(
   const unsettleMutation = useAtomCommand(threadEnvironment.unsettle, { reportFailure: false });
   const inFlightThreadKeys = useRef(new Set<string>());
 
-  const executeAction = async (action: ThreadListAction, thread: EnvironmentThreadShell) => {
+  const executeAction = async (
+    action: ThreadListAction,
+    thread: EnvironmentThreadShell,
+    onStarted?: () => void,
+  ) => {
     if (!checkThreadOperationPermission(thread, actionFailureTitle(action))) return false;
     const key = scopedThreadKey(thread.environmentId, thread.id);
     if (inFlightThreadKeys.current.has(key)) {
@@ -158,6 +162,7 @@ function useThreadActionExecutor(
       if (action === "archive" || action === "delete") {
         for (const kind of ["settle", "snooze", "pin"]) ThreadUndo.invalidate(kind, key);
       }
+      onStarted?.();
       const result = await withThreadDismissal(
         key,
         async () =>
@@ -307,12 +312,16 @@ export function useThreadListActions(): {
   const settleThread = async (thread: EnvironmentThreadShell) => {
     const key = scopedThreadKey(thread.environmentId, thread.id);
     const plan = ThreadUndo.planThreadUndo("settle", thread);
-    ThreadUndo.invalidate("pin", key);
-    ThreadUndo.invalidate("snooze", key);
-    const claim = ThreadUndo.begin("settle", key);
-    const succeeded = await executeAction("settle", thread);
-    if (succeeded) offerUndo(thread, "Settled", claim, plan);
-    else claim.finish();
+    let claim: ReturnType<typeof ThreadUndo.begin> | undefined;
+    const succeeded = await executeAction("settle", thread, () => {
+      ThreadUndo.invalidate("pin", key);
+      ThreadUndo.invalidate("snooze", key);
+      claim = ThreadUndo.begin("settle", key);
+    });
+    if (claim) {
+      if (succeeded) offerUndo(thread, "Settled", claim, plan);
+      else claim.finish();
+    }
     return succeeded;
   };
   const snoozeThread = async (thread: EnvironmentThreadShell, snoozedUntil: string) => {

@@ -331,6 +331,47 @@ describe("pinned thread operation permissions", () => {
 });
 
 describe("thread action undo", () => {
+  it.each([
+    ["settleThread", "settle", "Settled", "unsettle"],
+    ["snoozeThread", "snooze", "Snoozed", "unsnooze"],
+  ] as const)(
+    "%s keeps the successful request's undo when a duplicate is rejected",
+    async (handler, action, notice, inverse) => {
+      const actions = useThreadListActions();
+      const thread = makeThread();
+      const first = actions[handler](thread, "2099-01-01T09:00:00.000Z");
+
+      expect(await actions[handler](thread, "2099-01-01T09:00:00.000Z")).toBe(false);
+      expect(await first).toBe(true);
+      expect(state.requests.map(({ action }) => action)).toEqual([action]);
+      expect(readThreadUndoNotice()?.action).toBe(notice);
+      await readThreadUndoNotice()!.undo();
+      expect(state.requests.map(({ action }) => action)).toEqual([action, inverse]);
+    },
+  );
+
+  it("keeps the latest unpin undo after concurrent unpin requests", async () => {
+    const actions = useThreadListActions();
+    const thread = makeThread();
+    expect(await Promise.all([actions.unpinThread(thread), actions.unpinThread(thread)])).toEqual([
+      true,
+      true,
+    ]);
+    expect(readThreadUndoNotice()?.action).toBe("Unpinned");
+    await readThreadUndoNotice()!.undo();
+    expect(state.requests.map(({ action }) => action)).toEqual(["unpin", "unpin", "pin"]);
+  });
+
+  it("rejects a concurrent archive request without sending another mutation", async () => {
+    const actions = useThreadListActions();
+    const thread = makeThread();
+    const first = actions.archiveThread(thread);
+    expect(await actions.archiveThread(thread)).toBe(false);
+    expect(await first).toBe(true);
+    expect(state.requests.map(({ action }) => action)).toEqual(["archive"]);
+    expect(state.archivedRefreshes).toEqual([primaryEnvironmentId]);
+  });
+
   it("restores pin placement and snooze after settling, only once", async () => {
     const thread = makeThread({
       pinnedAt: "2026-09-02T00:00:00.000Z",

@@ -107,6 +107,29 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
+describe("concurrent thread action Undo", () => {
+  it.each([
+    ["settleThread", "settle", "unsettle", "Settled"],
+    ["snoozeThread", "snooze", "unsnooze", "Snoozed"],
+    ["unpinThread", "unpin", "pin", "Unpinned"],
+    ["archiveThread", "archive", "unarchive", "Archived"],
+  ] as const)(
+    "%s retains one undo for concurrent successful requests",
+    async (handler, action, inverse, notice) => {
+      const actions = useThreadActions();
+      const run = () =>
+        handler === "snoozeThread"
+          ? actions.snoozeThread(target, "2099-01-01T09:00:00.000Z")
+          : actions[handler](target);
+      await Promise.all([run(), run()]);
+      expect(commands[action]).toHaveBeenCalledTimes(2);
+      expect(useThreadUndoNotice.getState().notice).toMatchObject({ action: notice, count: 1 });
+      await currentUndo()();
+      expect(commands[inverse]).toHaveBeenCalledOnce();
+    },
+  );
+});
+
 describe("unpin Undo", () => {
   it("restores the original snooze after restoring the pin", async () => {
     threadShell.pinnedAt = "2026-01-01T00:00:00.000Z";
