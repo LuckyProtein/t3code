@@ -108,6 +108,24 @@ afterEach(() => {
 });
 
 describe("unpin Undo", () => {
+  it("restores the original snooze after restoring the pin", async () => {
+    threadShell.pinnedAt = "2026-01-01T00:00:00.000Z";
+    threadShell.snoozedUntil = "2030-01-01T09:00:00.000Z";
+    await useThreadActions().unpinThread(target);
+    await currentUndo()();
+    expect(commands.pin).toHaveBeenCalledExactlyOnceWith({
+      environmentId: target.environmentId,
+      input: { threadId: target.threadId, orderKey: "a0" },
+    });
+    expect(commands.snooze).toHaveBeenCalledExactlyOnceWith({
+      environmentId: target.environmentId,
+      input: { threadId: target.threadId, snoozedUntil: threadShell.snoozedUntil },
+    });
+    expect(commands.pin.mock.invocationCallOrder[0]).toBeLessThan(
+      commands.snooze.mock.invocationCallOrder[0]!,
+    );
+  });
+
   it("ignores an old notice across hook instances and still restores the latest unpin", async () => {
     const sidebar = useThreadActions();
     const header = useThreadActions();

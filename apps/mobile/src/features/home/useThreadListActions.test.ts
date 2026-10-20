@@ -368,15 +368,44 @@ describe("thread action undo", () => {
     });
   });
 
-  it("restores an unpinned thread's previous position", async () => {
-    const thread = makeThread({ pinnedAt: "2026-09-02T00:00:00.000Z", pinOrderKey: "m" });
-    await useThreadListActions().unpinThread(thread);
-    expect(readThreadUndoNotice()?.action).toBe("Unpinned");
-    await readThreadUndoNotice()!.undo();
-    expect(state.requests.at(-1)).toMatchObject({
-      action: "pin",
-      input: { threadId: thread.id, orderKey: "m" },
+  it.each([null, "2099-01-01T09:00:00.000Z", "2000-01-01T09:00:00.000Z"])(
+    "restores an unpinned thread's previous position and unexpired snooze (%s)",
+    async (snoozedUntil) => {
+      const thread = makeThread({
+        pinnedAt: "2026-09-02T00:00:00.000Z",
+        pinOrderKey: "m",
+        snoozedUntil,
+      });
+      await useThreadListActions().unpinThread(thread);
+      expect(readThreadUndoNotice()?.action).toBe("Unpinned");
+      await readThreadUndoNotice()!.undo();
+      const restoresSnooze = snoozedUntil != null && Date.parse(snoozedUntil) > Date.now();
+      expect(state.requests.map(({ action }) => action)).toEqual(
+        restoresSnooze ? ["unpin", "pin", "snooze"] : ["unpin", "pin"],
+      );
+      expect(state.requests[1]).toMatchObject({
+        action: "pin",
+        input: { threadId: thread.id, orderKey: "m" },
+      });
+      if (restoresSnooze) {
+        expect(state.requests[2]).toMatchObject({
+          action: "snooze",
+          environmentId: thread.environmentId,
+          input: { threadId: thread.id, snoozedUntil },
+        });
+      }
+    },
+  );
+
+  it("does not restore snooze if undoing an unpin fails", async () => {
+    const thread = makeThread({
+      pinnedAt: "2026-09-02T00:00:00.000Z",
+      snoozedUntil: "2099-01-01T09:00:00.000Z",
     });
+    await useThreadListActions().unpinThread(thread);
+    state.failedAction = "pin";
+    await readThreadUndoNotice()!.undo();
+    expect(state.requests.map(({ action }) => action)).toEqual(["unpin", "pin"]);
   });
 
   it("invalidates a retained undo when another hook pins the thread", async () => {
