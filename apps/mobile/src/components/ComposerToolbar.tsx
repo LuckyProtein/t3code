@@ -106,7 +106,9 @@ export function ComposerInlineControl(props: {
             </Text>
           </Animated.View>
         )}
-        {!props.iconOnly && props.suffix ? <View className="shrink-0">{props.suffix}</View> : null}
+        {!props.iconOnly && props.suffix ? (
+          <View className="min-w-0 shrink">{props.suffix}</View>
+        ) : null}
         {props.showChevron === false ? null : (
           <SymbolView
             name={props.chevronDirection === "right" ? "chevron.right" : "chevron.down"}
