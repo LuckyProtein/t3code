@@ -366,6 +366,7 @@ function ThreadVisitWatermark(props: {
     selectedThreadWokeAt !== null && Date.parse(selectedThreadWokeAt) > Date.parse(thread.updatedAt)
       ? selectedThreadWokeAt
       : thread.updatedAt;
+  const wakeIsLatestUpdate = selectedThreadUpdatedAt === selectedThreadWokeAt;
   const selectedThreadLastVisitedAt = thread.lastVisitedAt;
   const selectedThreadCompletedAt = thread.latestRun?.completedAt;
   useEffect(() => {
@@ -392,7 +393,14 @@ function ThreadVisitWatermark(props: {
       (Number.isNaN(lastVisitedAtMs) || completedAtMs > lastVisitedAtMs);
     const previous = lastVisitDispatchRef.current;
     const elapsed = Date.now() - previous.at;
-    if (previous.threadKey !== selectedThreadKey || hasUnseenCompletion || elapsed >= 10_000) {
+    // Like a completion, a wake the user is looking at must not wait out the throttle:
+    // leaving within it would cancel the dispatch and keep Woke in the list.
+    if (
+      previous.threadKey !== selectedThreadKey ||
+      hasUnseenCompletion ||
+      wakeIsLatestUpdate ||
+      elapsed >= 10_000
+    ) {
       dispatch();
       return;
     }
@@ -407,6 +415,7 @@ function ThreadVisitWatermark(props: {
     selectedThreadUpdatedAt,
     showContent,
     visitThread,
+    wakeIsLatestUpdate,
   ]);
   return null;
 }
