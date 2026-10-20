@@ -11,6 +11,7 @@ import {
 } from "@t3tools/client-runtime/state/runtime";
 import { deriveProjectGroupLabel } from "@t3tools/client-runtime/state/project-grouping";
 import type { EnvironmentProject } from "@t3tools/client-runtime/state/shell";
+import { useNavigation } from "@react-navigation/native";
 import { useRef, useState } from "react";
 import { Platform, Pressable, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -83,6 +84,7 @@ function ProjectOverviewContent(props: {
   const [isSaving, setIsSaving] = useState(false);
   const [isRemoving, setIsRemoving] = useState(false);
   const removalPending = useRef(false);
+  const navigation = useNavigation();
   const threads = useThreadShells();
   const removableEnvironments = useEnvironmentsWithScope(
     props.members,
@@ -158,6 +160,8 @@ function ProjectOverviewContent(props: {
               return;
             }
           }
+          // Nothing is left to show once the whole project is gone.
+          if (plan.targetKind === "project" && navigation.isFocused()) navigation.goBack();
         })().finally(() => {
           removalPending.current = false;
           setIsRemoving(false);
