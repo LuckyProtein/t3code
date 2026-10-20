@@ -17,6 +17,7 @@ export function ComposerModelControl(props: {
   readonly prompt: string;
   readonly surfaceColor: string;
   readonly disabled?: boolean;
+  readonly iconOnly?: boolean;
   readonly onPress: () => void;
 }) {
   const descriptors = resolveProviderOptionDescriptors({
@@ -68,6 +69,7 @@ export function ComposerModelControl(props: {
         )
       }
       label={label}
+      iconOnly={props.iconOnly}
       suffix={
         summary ? (
           <Text className="text-xs text-foreground-muted" numberOfLines={1}>
