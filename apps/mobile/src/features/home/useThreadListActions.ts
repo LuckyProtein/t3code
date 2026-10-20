@@ -281,8 +281,9 @@ export function useThreadListActions(): {
                 case "pin":
                   return pinThread(thread, step.orderKey);
                 case "snooze": {
-                  if (!checkThreadOperationPermission(thread, "Could not undo settle"))
-                    return false;
+                  const failureTitle =
+                    action === "Unpinned" ? "Could not undo unpin" : "Could not undo settle";
+                  if (!checkThreadOperationPermission(thread, failureTitle)) return false;
                   const result = await snoozeMutation({
                     environmentId: thread.environmentId,
                     input: { threadId: thread.id, snoozedUntil: step.snoozedUntil },
@@ -452,8 +453,9 @@ export function useThreadListActions(): {
       ? (restoreOrderKey ?? orderKey)
       : undefined;
     ThreadUndo.invalidate("pin", scopedThreadKey(thread.environmentId, thread.id));
-    // A pending Settled undo would re-snooze the thread this pin just woke.
+    // Pinning clears snooze, so older Settled or Snoozed undos would fight this pin.
     ThreadUndo.invalidate("settle", scopedThreadKey(thread.environmentId, thread.id));
+    ThreadUndo.invalidate("snooze", scopedThreadKey(thread.environmentId, thread.id));
     const result = await pinMutation({
       environmentId: thread.environmentId,
       input: { threadId: thread.id, ...(orderKey !== undefined ? { orderKey } : {}) },
@@ -700,9 +702,10 @@ export function useThreadListActions(): {
           const orderKey = assignments.find(
             ({ id }) => id === scopedThreadKey(thread.environmentId, thread.id),
           )?.orderKey;
-          // Same as pinThread: older Unpinned or Settled undos would undo this pin.
+          // Same as pinThread: older Unpinned, Settled, or Snoozed undos would fight this pin.
           ThreadUndo.invalidate("pin", scopedThreadKey(thread.environmentId, thread.id));
           ThreadUndo.invalidate("settle", scopedThreadKey(thread.environmentId, thread.id));
+          ThreadUndo.invalidate("snooze", scopedThreadKey(thread.environmentId, thread.id));
           const result = await pinMutation({
             environmentId: thread.environmentId,
             input: { threadId: thread.id, ...(orderKey === undefined ? {} : { orderKey }) },
