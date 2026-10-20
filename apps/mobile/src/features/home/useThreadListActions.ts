@@ -452,6 +452,8 @@ export function useThreadListActions(): {
       ? (restoreOrderKey ?? orderKey)
       : undefined;
     ThreadUndo.invalidate("pin", scopedThreadKey(thread.environmentId, thread.id));
+    // A pending Settled undo would re-snooze the thread this pin just woke.
+    ThreadUndo.invalidate("settle", scopedThreadKey(thread.environmentId, thread.id));
     const result = await pinMutation({
       environmentId: thread.environmentId,
       input: { threadId: thread.id, ...(orderKey !== undefined ? { orderKey } : {}) },

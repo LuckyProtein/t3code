@@ -650,6 +650,8 @@ export function useThreadActions() {
       ? (opts.orderKey ?? topOfPinnedRunOrderKey())
       : undefined;
     ThreadUndo.invalidate("pin", scopedThreadKey(target));
+    // A pending Settled undo would re-snooze the thread this pin just woke.
+    ThreadUndo.invalidate("settle", scopedThreadKey(target));
     return pinThreadMutation({
       environmentId: target.environmentId,
       input: {
