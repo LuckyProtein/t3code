@@ -1,5 +1,5 @@
 import DOMPurify from "dompurify";
-import type { DiagramType } from "pele/lazy";
+import type { DiagramType, MathResolver } from "pele/lazy";
 import { use, useLayoutEffect, useRef, useState } from "react";
 
 import { serializeCodeBlockToMarkdown } from "../../markdown-clipboard";
@@ -41,6 +41,116 @@ function detectDiagramType(pele: Pele, source: string): DiagramType | null {
   }
 }
 
+let mathLoad: Promise<MathResolver | null> | null = null;
+
+// Pele has no typesetter, so $$...$$ labels go through the KaTeX the chat
+// already uses for math. It only loads for diagrams that contain math.
+function loadMath(): Promise<MathResolver | null> {
+  mathLoad ??= import("katex").then(
+    ({ default: katex }) => {
+      const typeset = new Map<string, ReturnType<MathResolver>>();
+      let probe: HTMLDivElement | null = null;
+      // Pele calls this on every layout, including resizes.
+      return (tex, size) => {
+        const key = `${size}:${tex}`;
+        if (typeset.has(key)) return typeset.get(key);
+        let markup: ReturnType<MathResolver> = null;
+        try {
+          if (!probe) {
+            probe = document.createElement("div");
+            probe.style.cssText =
+              "position:absolute;left:-9999px;visibility:hidden;display:inline-block;white-space:nowrap";
+            document.body.append(probe);
+          }
+          probe.style.fontSize = `${size}px`;
+          probe.innerHTML = katex.renderToString(tex, {
+            displayMode: true,
+            output: "mathml",
+            throwOnError: true,
+            // No \href, \url, \htmlClass, or other commands that emit active HTML.
+            trust: false,
+            strict: "ignore",
+            maxSize: 20,
+            maxExpand: 1000,
+          });
+          const expression = probe.querySelector("math");
+          // The annotation repeats the TeX source; the sanitizer would keep its text.
+          expression?.querySelector("annotation")?.remove();
+          if (expression) {
+            const { width, height } = expression.getBoundingClientRect();
+            markup = { html: expression.outerHTML, width, height };
+          }
+        } catch {
+          // Unsupported TeX stays readable as its source.
+        }
+        typeset.set(key, markup);
+        return markup;
+      };
+    },
+    () => null,
+  );
+  return mathLoad;
+}
+
+// MathML element types KaTeX emits, without annotation (the resolver removes it),
+// semantics (only a wrapper, so its content is kept), and mglyph (an image).
+const KATEX_MATHML_TAGS = new Set([
+  "math",
+  "menclose",
+  "mfrac",
+  "mi",
+  "mlabeledtr",
+  "mn",
+  "mo",
+  "mover",
+  "mpadded",
+  "mphantom",
+  "mroot",
+  "mrow",
+  "mspace",
+  "msqrt",
+  "mstyle",
+  "msub",
+  "msubsup",
+  "msup",
+  "mtable",
+  "mtd",
+  "mtext",
+  "mtr",
+  "munder",
+  "munderover",
+]);
+// Presentation attributes KaTeX sets on those elements. The profiles already
+// cover class, style, width, height, display, and xmlns.
+const KATEX_MATHML_ATTRIBUTES = new Set([
+  "accent",
+  "accentunder",
+  "columnalign",
+  "columnlines",
+  "columnspacing",
+  "depth",
+  "displaystyle",
+  "fence",
+  "largeop",
+  "linebreak",
+  "linethickness",
+  "lspace",
+  "mathbackground",
+  "mathcolor",
+  "mathsize",
+  "mathvariant",
+  "maxsize",
+  "minsize",
+  "notation",
+  "rowlines",
+  "rowspacing",
+  "rspace",
+  "scriptlevel",
+  "separator",
+  "stretchy",
+  "voffset",
+]);
+
 let purifier: ReturnType<typeof DOMPurify> | null = null;
 
 // Diagrams can come from untrusted PR descriptions. Pele escapes labels and
@@ -52,6 +162,23 @@ function sanitizeDiagramSvg(svg: string): Node {
     FORBID_ATTR: ["href", "xlink:href", "src", "srcset"],
     FORBID_TAGS: ["a", "image", "foreignObject", "style"],
     USE_PROFILES: { svg: true, svgFilters: true },
+    RETURN_DOM_FRAGMENT: true,
+  });
+}
+
+// Pele puts MathML labels in a <foreignObject> with an HTML <div> around them.
+function sanitizeMathDiagramSvg(svg: string): Node {
+  purifier ??= DOMPurify(window);
+  return purifier.sanitize(svg, {
+    // DOMPurify still only accepts <math> under an HTML parent and checks every
+    // MathML child's namespace.
+    ADD_TAGS: ["foreignObject", ...KATEX_MATHML_TAGS],
+    ADD_ATTR: (attribute, tagName) =>
+      KATEX_MATHML_TAGS.has(tagName) && KATEX_MATHML_ATTRIBUTES.has(attribute),
+    HTML_INTEGRATION_POINTS: { foreignobject: true },
+    FORBID_ATTR: ["href", "xlink:href", "src", "srcset"],
+    FORBID_TAGS: ["a", "img", "image", "script", "style"],
+    USE_PROFILES: { svg: true, svgFilters: true, html: true },
     RETURN_DOM_FRAGMENT: true,
   });
 }
@@ -106,6 +233,7 @@ export function MermaidDiagram({
   const core = use(loadCore());
   const type = core.status === "loaded" ? detectDiagramType(core.pele, trimmedSource) : null;
   const load = core.status === "loaded" && type ? use(loadDiagramType(core.pele, type)) : core;
+  const math = trimmedSource.includes("$$") ? use(loadMath()) : null;
 
   useLayoutEffect(() => {
     const container = containerRef.current;
@@ -116,7 +244,7 @@ export function MermaidDiagram({
       zoom: false,
       // Keep the author's direction; a wide diagram scales down to fit instead of turning vertical.
       autoDirection: false,
-      sanitize: sanitizeDiagramSvg,
+      ...(math ? { math, sanitize: sanitizeMathDiagramSvg } : { sanitize: sanitizeDiagramSvg }),
       onRender: () => setRenderError(null),
       onError: (error) =>
         setRenderError(
@@ -124,7 +252,7 @@ export function MermaidDiagram({
         ),
     });
     return () => mounted.destroy();
-  }, [load, trimmedSource]);
+  }, [load, math, trimmedSource]);
 
   if (load.status === "failed") {
     return (
