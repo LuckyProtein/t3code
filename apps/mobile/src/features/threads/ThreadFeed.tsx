@@ -241,6 +241,7 @@ import { useV2ItemSupport } from "../../state/v2-item-support";
 import {
   fileRoutePathSegments,
   resolveFileLinkPath,
+  resolveWorkspaceFilePath,
   resolveWorkspaceRelativeFilePath,
 } from "../files/filePath";
 import { waitForThreadShellReady } from "./threadForkNavigation";
@@ -1907,6 +1908,7 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
         needsWorkspaceBasenameLookup(relativePath) &&
         readEnvironmentScope(props.environmentId, AuthFilesystemReadScope)
       ) {
+        const originalPath = resolveWorkspaceFilePath(props.workspaceRoot, relativePath);
         void executeAtomQuery(
           appAtomRegistry,
           projectEnvironment.searchEntries({
@@ -1925,7 +1927,27 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
               result._tag === "Success"
                 ? pickWorkspaceBasenameMatch(relativePath, result.value.entries)
                 : null;
-            openAt(match ?? relativePath);
+            if (!match || match === relativePath) {
+              openAt(relativePath);
+              return;
+            }
+            if (request.signal.aborted) return;
+            void executeAtomQuery(
+              appAtomRegistry,
+              projectEnvironment.fileMetadata({
+                environmentId: props.environmentId,
+                input: { path: originalPath },
+              }),
+              { signal: request.signal, reportFailure: false, reportDefect: false },
+            ).then(
+              (metadata) =>
+                openAt(
+                  metadata._tag === "Success" && metadata.value?.kind !== "directory"
+                    ? match
+                    : relativePath,
+                ),
+              () => openAt(relativePath),
+            );
           },
           () => openAt(relativePath),
         );
