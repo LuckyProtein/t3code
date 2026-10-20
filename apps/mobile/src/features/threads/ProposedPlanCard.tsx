@@ -70,7 +70,9 @@ export function ProposedPlanCard(props: {
           onPress={() =>
             Dialog.prompt({
               title: "Save plan to workspace",
-              message: "Enter a path relative to the thread's workspace.",
+              // The write replaces an existing file, and the RPC has no create-only mode.
+              message:
+                "Enter a path relative to the thread's workspace. A file already at that path is replaced.",
               initialValue: lastPath,
               confirmText: "Save",
               onConfirm: (path) => void save(path),
