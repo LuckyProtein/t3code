@@ -83,6 +83,31 @@ export const MuseSessionResult = Schema.Struct({
 });
 export const MuseTurnStartResult = Schema.Struct({ turnId: NonEmptyString });
 
+/**
+ * `skill/list` rows: one per typed-invocable shortcut spelling. `selector` is
+ * the token a `skill` turn part submits.
+ */
+export const MuseSkillCatalogEntry = Schema.Struct({
+  selector: NonEmptyString,
+  displayName: Schema.optional(Schema.String),
+  description: Schema.optional(Schema.String),
+  argumentHint: Schema.optional(Schema.String),
+});
+export const MuseSkillCatalogResult = Schema.Struct({
+  skills: Schema.Array(MuseSkillCatalogEntry),
+});
+export type MuseSkillCatalogResult = typeof MuseSkillCatalogResult.Type;
+
+/** A Muse that cannot answer `skill/list` keeps the prompt as it is. */
+export class MuseSkillCatalogError extends Schema.TaggedError<MuseSkillCatalogError>()(
+  "MuseSkillCatalogError",
+  { detail: Schema.String },
+) {
+  override get message(): string {
+    return this.detail;
+  }
+}
+
 export const MuseApproval = Schema.Struct({
   approvalId: NonEmptyString,
   protectedWrite: Schema.optional(Schema.Boolean),

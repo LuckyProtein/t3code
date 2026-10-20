@@ -25,6 +25,7 @@ import {
 } from "@t3tools/contracts";
 import type { MuseSettings } from "../settings.ts";
 import { AgentScope } from "@t3tools/shared/AgentScope";
+import { SKILL_MENTION_PATTERN } from "@t3tools/shared/composerInlineTokens";
 import { getModelSelectionStringOptionValue } from "@t3tools/shared/model";
 import * as Cause from "effect/Cause";
 import * as DateTime from "effect/DateTime";
@@ -50,6 +51,8 @@ import {
   MuseDelta,
   MuseItemEvent,
   MuseSessionResult,
+  MuseSkillCatalogError,
+  MuseSkillCatalogResult,
   MuseSubscriptionUsage,
   MuseTokenUsageEvent,
   MuseTodoList,
@@ -95,6 +98,7 @@ import { museItemStatus, museToolPresentation } from "./itemPresentation.ts";
 const MUSE_PROVIDER = ProviderDriverKind.make("muse");
 const isOpenSessionError = Schema.is(ProviderAdapter.ProviderAdapterOpenSessionError);
 const isProtocolError = Schema.is(ProviderAdapter.ProviderAdapterProtocolError);
+const decodeMuseSkillCatalogResult = Schema.decodeUnknownEffect(MuseSkillCatalogResult);
 
 const MuseProviderCapabilitiesV2 = {
   runtimePolicy: { enforcement: "native" },
@@ -1891,6 +1895,48 @@ export const makeMuseAdapterV2 = Effect.fn("makeMuseAdapterV2")(function* (
           ),
         );
       });
+      /**
+       * The composer inserts `$skill-name` for a picked skill. Muse wants the
+       * skill as its own turn part, and it only accepts a selector its own
+       * catalog holds, so the mention is resolved against `skill/list`.
+       */
+      const resolveSkillSelectors = Effect.fnUntraced(function* (text: string) {
+        if (!text) return [];
+        const names = new Set(
+          [...text.matchAll(SKILL_MENTION_PATTERN)]
+            .map((match) => match[2] ?? "")
+            .filter((name) => name.length > 0),
+        );
+        if (names.size === 0) return [];
+        const sessionId = nativeSessionId;
+        if (sessionId === undefined) return [];
+        // A Muse that cannot list its skills keeps the prompt as it is, so this
+        // read never fails the turn and never takes the host down with it.
+        const catalog = yield* Effect.tryPromise({
+          try: () => host.connection.request("skill/list", { sessionId }),
+          catch: (cause) =>
+            new MuseSkillCatalogError({
+              detail:
+                cause instanceof Error
+                  ? `Muse skill/list failed: ${cause.message}`
+                  : `Muse skill/list failed: ${String(cause)}`,
+            }),
+        }).pipe(
+          Effect.timeout(5_000),
+          Effect.catchCause(() => Effect.succeed(null)),
+        );
+        if (!catalog) return [];
+        const skills = yield* decodeMuseSkillCatalogResult(catalog).pipe(
+          Effect.orElseSucceed(() => null),
+        );
+        if (!skills) return [];
+        const selectors: string[] = [];
+        for (const name of names) {
+          const match = skills.skills.find((skill) => skill.selector === name);
+          if (match && !selectors.includes(match.selector)) selectors.push(match.selector);
+        }
+        return selectors;
+      });
       const prompt = Effect.fnUntraced(function* (
         message: ProviderAdapter.ProviderAdapterV2TurnMessage,
       ) {
@@ -1914,6 +1960,9 @@ export const makeMuseAdapterV2 = Effect.fn("makeMuseAdapterV2")(function* (
               mediaType: attachment.mimeType,
             });
           }
+        for (const selector of yield* resolveSkillSelectors(text)) {
+          parts.push({ type: "skill", selector });
+        }
         if (!parts.length) return yield* protocolError("Muse needs text or an image");
         return parts;
       });

@@ -13,6 +13,7 @@ import * as ProviderHost from "@t3tools/provider-core/server/ProviderHost";
 import * as McpProviderSessions from "@t3tools/provider-core/server/McpProviderSessions";
 import { expandHomePath } from "@t3tools/provider-core/server/pathExpansion";
 import { makeMuseTextGeneration } from "./textGeneration.ts";
+import { discoverMuseSkills } from "./skills.ts";
 import { ProviderDriverError } from "@t3tools/provider-core/server/errors";
 import { makeMuseAdapterV2 } from "./adapter.ts";
 import * as IdAllocator from "@t3tools/provider-core/server/IdAllocator";
@@ -190,6 +191,26 @@ export const MuseDriver: ProviderDriver<MuseSettings, MuseDriverEnv> = {
       accentColor,
       enabled,
       snapshot: { ...snapshot, resolveMaintenance },
+      // The composer lists a provider's skills per workspace, so Muse reports
+      // the skills its own catalog holds for that workspace.
+      snapshotForCwd: (cwd) =>
+        !effectiveConfig.enabled
+          ? snapshot.getSnapshot
+          : Effect.all([
+              snapshot.getSnapshot,
+              discoverMuseSkills(effectiveConfig, processEnvironment, cwd).pipe(
+                Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner),
+                Effect.mapError(
+                  (cause) =>
+                    new ProviderDriverError({
+                      driver: DRIVER_KIND,
+                      instanceId,
+                      detail: `Failed to discover Muse skills for '${cwd}'`,
+                      cause,
+                    }),
+                ),
+              ),
+            ]).pipe(Effect.map(([machineSnapshot, skills]) => ({ ...machineSnapshot, skills }))),
       orchestrationAdapter,
       textGeneration,
     } satisfies ProviderInstance;

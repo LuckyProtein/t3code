@@ -1724,4 +1724,79 @@ describe("MuseAdapterV2", () => {
       assert.strictEqual(child.subagent.result, "budget_exhausted");
     }).pipe(Effect.scoped, Effect.provide(testLayer)),
   );
+
+  it.effect("sends a picked skill as its own turn part", () =>
+    Effect.gen(function* () {
+      const fake = yield* makeFakeMuse();
+      fake.queueResponse("skill/list", {
+        skills: [
+          { selector: "engineer", displayName: "engineer", description: "Start a project." },
+          { selector: "acme:deploy", displayName: "deploy", description: "Deploy it." },
+        ],
+      });
+      const harness = yield* makeHarness(fake);
+      const input = yield* turnInput(harness.providerThread);
+      yield* harness.runtime.startTurn({
+        ...input,
+        message: { ...input.message, text: "Please use $engineer now" },
+      });
+      const call = yield* fake.takeCall("turn/start");
+      const parts = call.params.input as ReadonlyArray<Record<string, unknown>>;
+      assert.deepStrictEqual(
+        parts.filter((part) => part.type === "skill"),
+        [{ type: "skill", selector: "engineer" }],
+      );
+      assert.isTrue(
+        parts.some((part) => part.type === "text" && part.text === "Please use $engineer now"),
+      );
+    }).pipe(Effect.scoped, Effect.provide(testLayer)),
+  );
+
+  it.effect("keeps a prompt whose skill Muse does not know as plain text", () =>
+    Effect.gen(function* () {
+      const fake = yield* makeFakeMuse();
+      fake.queueResponse("skill/list", {
+        skills: [
+          { selector: "engineer", displayName: "engineer", description: "Start a project." },
+        ],
+      });
+      const harness = yield* makeHarness(fake);
+      const input = yield* turnInput(harness.providerThread);
+      yield* harness.runtime.startTurn({
+        ...input,
+        message: { ...input.message, text: "Please use $unknown now" },
+      });
+      const call = yield* fake.takeCall("turn/start");
+      const parts = call.params.input as ReadonlyArray<Record<string, unknown>>;
+      assert.deepStrictEqual(
+        parts.filter((part) => part.type === "skill"),
+        [],
+      );
+      assert.isTrue(
+        parts.some((part) => part.type === "text" && part.text === "Please use $unknown now"),
+      );
+    }).pipe(Effect.scoped, Effect.provide(testLayer)),
+  );
+
+  it.effect("keeps a prompt as plain text when Muse cannot list its skills", () =>
+    Effect.gen(function* () {
+      const fake = yield* makeFakeMuse();
+      fake.queueResponse("skill/list", new Error("skill/list is not supported"));
+      const harness = yield* makeHarness(fake);
+      const input = yield* turnInput(harness.providerThread);
+      yield* harness.runtime.startTurn({
+        ...input,
+        message: { ...input.message, text: "Please use $engineer now" },
+      });
+      const call = yield* fake.takeCall("turn/start");
+      const parts = call.params.input as ReadonlyArray<Record<string, unknown>>;
+      assert.deepStrictEqual(
+        parts.filter((part) => part.type === "skill"),
+        [],
+      );
+      assert.isTrue(
+        parts.some((part) => part.type === "text" && part.text === "Please use $engineer now"),
+      );
+    }).pipe(Effect.scoped, Effect.provide(testLayer)),
+  );
 });
