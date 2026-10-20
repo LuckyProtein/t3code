@@ -758,7 +758,7 @@ export const ThreadComposer = function ThreadComposer(props: ThreadComposerProps
   ) : null;
 
   // The row and the card's toolbar share this picker. It shrinks to the provider
-  // icon once the draft has text, so the draft keeps the width.
+  // icon in the row once the draft has text, so the draft keeps the width.
   const modelControl = (
     <View className="min-w-0 shrink">
       <ComposerModelControl
@@ -768,7 +768,8 @@ export const ThreadComposer = function ThreadComposer(props: ThreadComposerProps
         reportedSelection={props.reportedModelSelection}
         prompt={draftMessage}
         surfaceColor={composerPanel}
-        iconOnly={draftMessage.length > 0}
+        iconOnly={!usesCard && draftMessage.length > 0}
+        showSummary={usesCard}
         onPress={openSettings}
       />
     </View>
