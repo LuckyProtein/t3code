@@ -35,6 +35,17 @@ import { useSettingsEnvironmentFilter, type SettingsTarget } from "./settings-en
 
 export function SettingsProjectOverviewRouteScreen() {
   const insets = useSafeAreaInsets();
+  const [isRemoving, setIsRemoving] = useState(false);
+  const removalPending = useRef(false);
+  const startRemoval = () => {
+    if (removalPending.current) return false;
+    removalPending.current = true;
+    return true;
+  };
+  const finishRemoval = () => {
+    removalPending.current = false;
+    setIsRemoving(false);
+  };
   const { selectedTargets, projectGroups, selectedProjectKey } = useSettingsEnvironmentFilter();
   const group = projectGroups.find((entry) => entry.key === selectedProjectKey);
   const selectedEnvironmentIds = new Set(selectedTargets.map((entry) => entry.environmentId));
@@ -65,6 +76,10 @@ export function SettingsProjectOverviewRouteScreen() {
               members={members}
               environments={selectedTargets}
               hasOtherMembers={members.length < (group?.members.length ?? 0)}
+              isRemoving={isRemoving}
+              setIsRemoving={setIsRemoving}
+              startRemoval={startRemoval}
+              finishRemoval={finishRemoval}
             />
           )}
         </ScrollView>
@@ -77,13 +92,16 @@ function ProjectOverviewContent(props: {
   readonly members: readonly EnvironmentProject[];
   readonly environments: readonly SettingsTarget[];
   readonly hasOtherMembers: boolean;
+  readonly isRemoving: boolean;
+  readonly setIsRemoving: (isRemoving: boolean) => void;
+  readonly startRemoval: () => boolean;
+  readonly finishRemoval: () => void;
 }) {
+  const { isRemoving, setIsRemoving, startRemoval, finishRemoval } = props;
   const representative = props.members[0]!;
   const displayName = deriveProjectGroupLabel({ representative, members: props.members });
   const [draftName, setDraftName] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
-  const [isRemoving, setIsRemoving] = useState(false);
-  const removalPending = useRef(false);
   const navigation = useNavigation();
   const threads = useThreadShells();
   const removableEnvironments = useEnvironmentsWithScope(
@@ -117,7 +135,7 @@ function ProjectOverviewContent(props: {
   };
 
   const removeMembers = (members: readonly EnvironmentProject[]) => {
-    if (removalPending.current || !checkRemovalAccess(members)) return;
+    if (!checkRemovalAccess(members) || !startRemoval()) return;
     const plan = planProjectRemoval({
       members: members.map((member) => ({
         ...member,
@@ -130,15 +148,12 @@ function ProjectOverviewContent(props: {
       displayName,
       threads,
     });
-    removalPending.current = true;
     Dialog.confirm({
       title: plan.targetKind === "checkout" ? "Remove checkout" : "Remove project",
       message: plan.confirmationMessage,
       confirmText: plan.targetKind === "checkout" ? "Remove checkout" : "Remove project",
       destructive: true,
-      onCancel: () => {
-        removalPending.current = false;
-      },
+      onCancel: finishRemoval,
       onConfirm: () => {
         void (async () => {
           setIsRemoving(true);
@@ -162,10 +177,7 @@ function ProjectOverviewContent(props: {
           }
           // Nothing is left to show once the whole project is gone.
           if (plan.targetKind === "project" && navigation.isFocused()) navigation.goBack();
-        })().finally(() => {
-          removalPending.current = false;
-          setIsRemoving(false);
-        });
+        })().finally(finishRemoval);
       },
     });
   };
