@@ -2,6 +2,7 @@ import DOMPurify from "dompurify";
 import type { DiagramType } from "pele/lazy";
 import { use, useLayoutEffect, useRef, useState } from "react";
 
+import { serializeCodeBlockToMarkdown } from "../../markdown-clipboard";
 import { Button } from "../ui/button";
 
 type Pele = typeof import("pele/lazy");
@@ -140,7 +141,11 @@ export function MermaidDiagram({
   }
 
   return (
-    <div className="overflow-x-auto">
+    <div
+      className="chat-markdown-mermaid overflow-x-auto"
+      data-markdown-mermaid=""
+      data-markdown-copy={serializeCodeBlockToMarkdown(source, "mermaid")}
+    >
       {renderError ? <DiagramError message={renderError} source={source} /> : null}
       <button
         type="button"
