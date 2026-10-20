@@ -62,6 +62,7 @@ import {
   fileHeaderSubtitle,
   fileRoutePathSegments,
   resolveWorkspaceFilePath,
+  resolveWorkspaceRelativeFilePath,
   isAudioPreviewFile,
   isMarkdownPreviewFile,
   isSvgImagePreviewFile,
@@ -718,8 +719,10 @@ export function ThreadFileScreen(props: ThreadFileRouteScreenProps) {
   const fileData = fileQuery.data as ProjectReadFileResult | null;
 
   const handleSelectFile = (path: string) => {
+    const targetPath =
+      directoryPath === null ? path : resolveWorkspaceFilePath(directoryPath, path);
     const segments = fileRoutePathSegments(
-      directoryPath === null ? path : resolveWorkspaceFilePath(directoryPath, path),
+      resolveWorkspaceRelativeFilePath(cwd, targetPath) ?? targetPath,
     );
     // A draft has no thread. `ThreadFile` would stringify null and then wait forever for a
     // thread to resolve, so a draft stays on its own route and carries its workspace along.
