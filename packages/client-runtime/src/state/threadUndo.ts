@@ -73,6 +73,9 @@ export async function executeThreadUndo<Result>(
   let result = await execute(plan[0]);
   for (const step of plan.slice(1)) {
     if (!succeeded(result)) return result;
+    // A snooze can expire before Undo runs, and the server rejects an expired restore.
+    // @effect-diagnostics-next-line globalDate:off
+    if (step.action === "snooze" && Date.parse(step.snoozedUntil) <= Date.now()) continue;
     result = await execute(step);
   }
   return result;

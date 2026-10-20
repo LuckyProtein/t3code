@@ -126,6 +126,15 @@ describe("unpin Undo", () => {
     );
   });
 
+  it("restores the pin without an already expired snooze", async () => {
+    threadShell.pinnedAt = "2026-01-01T00:00:00.000Z";
+    threadShell.snoozedUntil = "2000-01-01T09:00:00.000Z";
+    await useThreadActions().unpinThread(target);
+    await currentUndo()();
+    expect(commands.pin).toHaveBeenCalledOnce();
+    expect(commands.snooze).not.toHaveBeenCalled();
+  });
+
   it("ignores an old notice across hook instances and still restores the latest unpin", async () => {
     const sidebar = useThreadActions();
     const header = useThreadActions();
