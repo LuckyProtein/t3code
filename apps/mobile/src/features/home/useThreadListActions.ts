@@ -700,6 +700,9 @@ export function useThreadListActions(): {
           const orderKey = assignments.find(
             ({ id }) => id === scopedThreadKey(thread.environmentId, thread.id),
           )?.orderKey;
+          // Same as pinThread: older Unpinned or Settled undos would undo this pin.
+          ThreadUndo.invalidate("pin", scopedThreadKey(thread.environmentId, thread.id));
+          ThreadUndo.invalidate("settle", scopedThreadKey(thread.environmentId, thread.id));
           const result = await pinMutation({
             environmentId: thread.environmentId,
             input: { threadId: thread.id, ...(orderKey === undefined ? {} : { orderKey }) },
