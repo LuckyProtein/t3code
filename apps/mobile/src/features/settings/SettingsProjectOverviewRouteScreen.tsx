@@ -12,7 +12,7 @@ import {
 import { deriveProjectGroupLabel } from "@t3tools/client-runtime/state/project-grouping";
 import type { EnvironmentProject } from "@t3tools/client-runtime/state/shell";
 import { useNavigation } from "@react-navigation/native";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Platform, Pressable, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
@@ -53,7 +53,20 @@ export function SettingsProjectOverviewRouteScreen() {
     removalPending.current = false;
     setIsRemoving(false);
   };
-  const { selectedTargets, projectGroups, selectedProjectKey } = useSettingsEnvironmentFilter();
+  const navigation = useNavigation();
+  const { selectedTargets, projectGroups, selectedProjectKey, selectProject } =
+    useSettingsEnvironmentFilter();
+  const latestProjectKey = useRef(selectedProjectKey);
+  useEffect(() => {
+    latestProjectKey.current = selectedProjectKey;
+  }, [selectedProjectKey]);
+  // The filter can move to another project while a removal is still running.
+  const finishProjectRemoval = (projectKey: string | null) => {
+    if (latestProjectKey.current !== projectKey) return;
+    if (navigation.isFocused()) navigation.goBack();
+    // Otherwise the filter keeps pointing at the removed project as an unavailable one.
+    selectProject(null);
+  };
   const group = projectGroups.find((entry) => entry.key === selectedProjectKey);
   const selectedEnvironmentIds = new Set(selectedTargets.map((entry) => entry.environmentId));
   const members =
@@ -87,6 +100,8 @@ export function SettingsProjectOverviewRouteScreen() {
               setIsRemoving={setIsRemoving}
               startRemoval={startRemoval}
               finishRemoval={finishRemoval}
+              projectKey={selectedProjectKey}
+              onProjectRemoved={finishProjectRemoval}
             />
           )}
         </ScrollView>
@@ -103,14 +118,14 @@ function ProjectOverviewContent(props: {
   readonly setIsRemoving: (isRemoving: boolean) => void;
   readonly startRemoval: () => boolean;
   readonly finishRemoval: () => void;
+  readonly projectKey: string | null;
+  readonly onProjectRemoved: (projectKey: string | null) => void;
 }) {
   const { isRemoving, setIsRemoving, startRemoval, finishRemoval } = props;
   const representative = props.members[0]!;
   const displayName = deriveProjectGroupLabel({ representative, members: props.members });
   const [draftName, setDraftName] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
-  const navigation = useNavigation();
-  const { selectProject } = useSettingsEnvironmentFilter();
   const threads = useThreadShells();
   const removableEnvironments = useEnvironmentsWithScope(
     props.members,
@@ -144,6 +159,7 @@ function ProjectOverviewContent(props: {
 
   const removeMembers = (members: readonly EnvironmentProject[]) => {
     if (!checkRemovalAccess(members) || !startRemoval()) return;
+    const projectKey = props.projectKey;
     const plan = planProjectRemoval({
       members: members.map((member) => ({
         ...member,
@@ -198,12 +214,8 @@ function ProjectOverviewContent(props: {
                 console.warn("[project-removal] could not clear composer drafts", error);
               });
           }
-          // Nothing is left to show once the whole project is gone, and its filter would
-          // otherwise keep pointing at it as an unavailable project.
-          if (plan.targetKind === "project") {
-            if (navigation.isFocused()) navigation.goBack();
-            selectProject(null);
-          }
+          // Nothing is left to show once the whole project is gone.
+          if (plan.targetKind === "project") props.onProjectRemoved(projectKey);
         })().finally(finishRemoval);
       },
     });
