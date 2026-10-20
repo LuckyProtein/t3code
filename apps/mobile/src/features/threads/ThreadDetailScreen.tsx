@@ -353,8 +353,7 @@ function ThreadVisitWatermark(props: {
   });
   // A scheduled wake can happen without a newer server update.
   const selectedThreadUpdatedAt =
-    selectedThreadWokeAt !== null &&
-    Date.parse(selectedThreadWokeAt) > Date.parse(thread.updatedAt)
+    selectedThreadWokeAt !== null && Date.parse(selectedThreadWokeAt) > Date.parse(thread.updatedAt)
       ? selectedThreadWokeAt
       : thread.updatedAt;
   const selectedThreadLastVisitedAt = thread.lastVisitedAt;
