@@ -110,6 +110,7 @@ function ProjectOverviewContent(props: {
   const [draftName, setDraftName] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const navigation = useNavigation();
+  const { selectProject } = useSettingsEnvironmentFilter();
   const threads = useThreadShells();
   const removableEnvironments = useEnvironmentsWithScope(
     props.members,
@@ -197,8 +198,12 @@ function ProjectOverviewContent(props: {
                 console.warn("[project-removal] could not clear composer drafts", error);
               });
           }
-          // Nothing is left to show once the whole project is gone.
-          if (plan.targetKind === "project" && navigation.isFocused()) navigation.goBack();
+          // Nothing is left to show once the whole project is gone, and its filter would
+          // otherwise keep pointing at it as an unavailable project.
+          if (plan.targetKind === "project") {
+            if (navigation.isFocused()) navigation.goBack();
+            selectProject(null);
+          }
         })().finally(finishRemoval);
       },
     });
