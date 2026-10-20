@@ -498,6 +498,8 @@ function ThreadSettingsSessionProvider(
     () => new Set(),
   );
   const [pendingModel, setPendingModel] = useState<ModelOption | null>(null);
+  const [pendingPrompt, setPendingPrompt] = useState<string | null>(null);
+  const displayedPrompt = pendingModel ? (pendingPrompt ?? props.prompt) : props.prompt;
 
   const isApplied = (option: ModelOption) =>
     option.selection.instanceId === props.selectedModel?.instanceId &&
@@ -513,7 +515,7 @@ function ThreadSettingsSessionProvider(
         })
       : []
     : props.optionDescriptors;
-  const promptTraits = getPromptControlledTraits(displayedDescriptors, props.prompt);
+  const promptTraits = getPromptControlledTraits(displayedDescriptors, displayedPrompt);
   const displayedModel =
     pendingModel ??
     props.providerGroups.flatMap((group) => group.models).find((option) => isApplied(option)) ??
@@ -540,6 +542,9 @@ function ThreadSettingsSessionProvider(
       }
       void Haptics.selectionAsync();
       props.onSelectModel(pendingModel);
+      if (pendingPrompt !== null && pendingPrompt !== props.prompt) {
+        props.onPromptChange(pendingPrompt);
+      }
     }
     return true;
   };
@@ -551,13 +556,19 @@ function ThreadSettingsSessionProvider(
         ? getTraitSelectChange(
             { ...promptTraits, descriptors: displayedDescriptors },
             descriptor,
-            props.prompt,
+            displayedPrompt,
             value,
           )
         : null;
     if (descriptor?.type === "select") {
       if (!change) return;
-      if (change.prompt !== props.prompt) props.onPromptChange(change.prompt);
+      if (change.prompt !== displayedPrompt) {
+        if (pendingModel) {
+          setPendingPrompt(change.prompt);
+        } else {
+          props.onPromptChange(change.prompt);
+        }
+      }
       if (!("modelOptions" in change)) return;
     }
     const next =
@@ -590,6 +601,9 @@ function ThreadSettingsSessionProvider(
 
   const pressModel = (option: ModelOption) => {
     void Haptics.selectionAsync();
+    if (isApplied(option) || option.key !== pendingModel?.key) {
+      setPendingPrompt(null);
+    }
     setPendingModel((current) =>
       pendingModelAfterPress({
         current,
