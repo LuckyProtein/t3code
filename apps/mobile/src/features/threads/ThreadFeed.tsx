@@ -1903,6 +1903,7 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
       if (
         props.workspaceRoot &&
         relativePath &&
+        !/[\\/]$/.test(presentation.path) &&
         needsWorkspaceBasenameLookup(relativePath) &&
         readEnvironmentScope(props.environmentId, AuthFilesystemReadScope)
       ) {
