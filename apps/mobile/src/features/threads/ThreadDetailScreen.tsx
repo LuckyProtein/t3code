@@ -349,17 +349,17 @@ function ThreadVisitWatermark(props: {
   const lastVisitDispatchRef = useRef({ threadKey: selectedThreadKey, at: 0 });
   const selectedThreadId = thread.id;
   const snoozedUntil = thread.snoozedUntil;
-  // A scheduled wake brings no shell update, so re-render when it passes.
-  const [, setWakeTick] = useState(0);
+  // Keep the clock in state so React Compiler invalidates the wake calculation.
+  const [wakeNow, setWakeNow] = useState(() => new Date().toISOString());
   useEffect(() => {
     if (!showContent || snoozedUntil == null) return;
     const delay = Date.parse(snoozedUntil) - Date.now();
-    if (!(delay > 0)) return;
-    const timer = setTimeout(() => setWakeTick((tick) => tick + 1), delay);
+    if (!Number.isFinite(delay)) return;
+    const timer = setTimeout(() => setWakeNow(new Date().toISOString()), Math.max(0, delay) + 50);
     return () => clearTimeout(timer);
   }, [showContent, snoozedUntil]);
   const selectedThreadWokeAt = threadWokeAt(thread, {
-    now: new Date().toISOString(),
+    now: wakeNow,
   });
   // A scheduled wake can happen without a newer server update.
   const selectedThreadUpdatedAt =
