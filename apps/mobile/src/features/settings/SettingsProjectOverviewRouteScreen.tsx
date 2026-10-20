@@ -18,6 +18,13 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { projectEnvironment } from "../../state/projects";
 import { useThreadShells } from "../../state/entities";
+import { appAtomRegistry } from "../../state/atom-registry";
+import {
+  clearComposerDraft,
+  composerDraftsAtom,
+  findNewTaskDraftKeys,
+  waitForComposerDraftsLoaded,
+} from "../../state/use-composer-drafts";
 import {
   readEnvironmentScope,
   useEnvironmentScope,
@@ -174,6 +181,21 @@ function ProjectOverviewContent(props: {
               }
               return;
             }
+            await waitForComposerDraftsLoaded()
+              .then(() => {
+                for (const draftKey of findNewTaskDraftKeys(
+                  appAtomRegistry.get(composerDraftsAtom),
+                  {
+                    environmentId: member.environmentId,
+                    projectId: member.id,
+                  },
+                )) {
+                  clearComposerDraft(draftKey);
+                }
+              })
+              .catch((error) => {
+                console.warn("[project-removal] could not clear composer drafts", error);
+              });
           }
           // Nothing is left to show once the whole project is gone.
           if (plan.targetKind === "project" && navigation.isFocused()) navigation.goBack();
