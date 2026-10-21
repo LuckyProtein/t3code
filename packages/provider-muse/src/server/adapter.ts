@@ -25,6 +25,7 @@ import {
 } from "@t3tools/contracts";
 import type { MuseSettings } from "../settings.ts";
 import { AgentScope } from "@t3tools/shared/AgentScope";
+import { SKILL_MENTION_PATTERN } from "@t3tools/shared/composerInlineTokens";
 import { getModelSelectionStringOptionValue } from "@t3tools/shared/model";
 import * as Cause from "effect/Cause";
 import * as DateTime from "effect/DateTime";
@@ -50,6 +51,8 @@ import {
   MuseDelta,
   MuseItemEvent,
   MuseSessionResult,
+  MuseSkillCatalogError,
+  MuseSkillCatalogResult,
   MuseSubscriptionUsage,
   MuseTokenUsageEvent,
   MuseTodoList,
@@ -95,6 +98,7 @@ import { museItemStatus, museToolPresentation } from "./itemPresentation.ts";
 const MUSE_PROVIDER = ProviderDriverKind.make("muse");
 const isOpenSessionError = Schema.is(ProviderAdapter.ProviderAdapterOpenSessionError);
 const isProtocolError = Schema.is(ProviderAdapter.ProviderAdapterProtocolError);
+const decodeMuseSkillCatalogResult = Schema.decodeUnknownEffect(MuseSkillCatalogResult);
 
 const MuseProviderCapabilitiesV2 = {
   runtimePolicy: { enforcement: "native" },
@@ -697,6 +701,19 @@ export const makeMuseAdapterV2 = Effect.fn("makeMuseAdapterV2")(function* (
       ) {
         // Muse's skill-reminder child runs on every model step; it is housekeeping, not work.
         if (item.kind === "userMessage" || item.kind === "reminderChild") return;
+        // A kind-less marker with nothing to render is tracked but never published.
+        if (
+          item.kind === undefined &&
+          item.tool === undefined &&
+          item.text === undefined &&
+          item.summary === undefined &&
+          item.fallbackText === undefined &&
+          item.visibleOutput === undefined &&
+          item.result === undefined &&
+          item.finalSummary === undefined &&
+          item.objective === undefined
+        )
+          return;
         if (
           item.kind === "toolCall" &&
           item.tool &&
@@ -1891,6 +1908,60 @@ export const makeMuseAdapterV2 = Effect.fn("makeMuseAdapterV2")(function* (
           ),
         );
       });
+      /**
+       * The orchestrator prefixes context handoffs to the turn text, and a
+       * summary can quote an earlier `$skill` mention. Only the tail after the
+       * injected "User message:" header is the user's own prompt.
+       */
+      const userAuthoredPrompt = (text: string) => {
+        if (!text.startsWith("Context handoff (")) return text;
+        let start = 0;
+        for (const match of text.matchAll(/\n+User message:\n/gu))
+          start = (match.index ?? 0) + match[0].length;
+        return start === 0 ? text : text.slice(start);
+      };
+      /**
+       * The composer inserts `$skill-name` for a picked skill. Muse wants the
+       * skill as its own turn part, and it only accepts a selector its own
+       * catalog holds, so the mention is resolved against `skill/list`.
+       */
+      const resolveSkillSelectors = Effect.fnUntraced(function* (text: string) {
+        if (!text) return [];
+        const names = new Set(
+          [...text.matchAll(SKILL_MENTION_PATTERN)]
+            .map((match) => match[2] ?? "")
+            .filter((name) => name.length > 0),
+        );
+        if (names.size === 0) return [];
+        const sessionId = nativeSessionId;
+        if (sessionId === undefined) return [];
+        // A Muse that cannot list its skills keeps the prompt as it is, so this
+        // read never fails the turn and never takes the host down with it.
+        const catalog = yield* Effect.tryPromise({
+          try: () => host.connection.request("skill/list", { sessionId }),
+          catch: (cause) =>
+            new MuseSkillCatalogError({
+              detail:
+                cause instanceof Error
+                  ? `Muse skill/list failed: ${cause.message}`
+                  : `Muse skill/list failed: ${String(cause)}`,
+            }),
+        }).pipe(
+          Effect.timeout(5_000),
+          Effect.catchCause(() => Effect.succeed(null)),
+        );
+        if (!catalog) return [];
+        const skills = yield* decodeMuseSkillCatalogResult(catalog).pipe(
+          Effect.orElseSucceed(() => null),
+        );
+        if (!skills) return [];
+        const selectors: string[] = [];
+        for (const name of names) {
+          const match = skills.skills.find((skill) => skill.selector === name);
+          if (match && !selectors.includes(match.selector)) selectors.push(match.selector);
+        }
+        return selectors;
+      });
       const prompt = Effect.fnUntraced(function* (
         message: ProviderAdapter.ProviderAdapterV2TurnMessage,
       ) {
@@ -1900,7 +1971,14 @@ export const makeMuseAdapterV2 = Effect.fn("makeMuseAdapterV2")(function* (
           attachments: message.attachments,
           resolveAttachmentPath: providerHost.resolveAttachmentPath,
         });
-        if (text) parts.push({ type: "text", text });
+        const skill = (yield* resolveSkillSelectors(userAuthoredPrompt(text)))[0];
+        if (skill !== undefined) {
+          // Muse admits one skill part per submission and lets it combine with
+          // images only (SS3.2), so the prompt rides on its arguments.
+          parts.push({ type: "skill", selector: skill, ...(text ? { arguments: text } : {}) });
+        } else if (text) {
+          parts.push({ type: "text", text });
+        }
         for (const attachment of message.attachments)
           if (isProviderNativeImageAttachment(attachment)) {
             const path = providerHost.resolveAttachmentPath(attachment);
@@ -1915,7 +1993,7 @@ export const makeMuseAdapterV2 = Effect.fn("makeMuseAdapterV2")(function* (
             });
           }
         if (!parts.length) return yield* protocolError("Muse needs text or an image");
-        return parts;
+        return { parts, skillTurn: skill !== undefined };
       });
       const validateThread = (candidate: OrchestrationV2ProviderThread) =>
         thread !== undefined &&
@@ -1955,7 +2033,11 @@ export const makeMuseAdapterV2 = Effect.fn("makeMuseAdapterV2")(function* (
           turnInput.message.creationSource === "provider";
         const adopted = continuation ? wake : undefined;
         const effort = continuation ? undefined : yield* selectionEffort(turnInput.modelSelection);
-        const parts = compact || continuation ? [] : yield* prompt(turnInput.message);
+        const prompted =
+          compact || continuation
+            ? { parts: [], skillTurn: false }
+            : yield* prompt(turnInput.message);
+        const parts = prompted.parts;
         const targetModel = continuation
           ? undefined
           : yield* resolveModel(turnInput.modelSelection);
@@ -2040,14 +2122,18 @@ export const makeMuseAdapterV2 = Effect.fn("makeMuseAdapterV2")(function* (
               "turn/start",
               {
                 input: [
-                  {
-                    type: "text",
-                    text: buildRuntimeInstructions({
-                      harness: "Muse Code",
-                      model: session.model ?? undefined,
-                      reasoningEffort: effort,
-                    }),
-                  },
+                  ...(prompted.skillTurn
+                    ? []
+                    : [
+                        {
+                          type: "text" as const,
+                          text: buildRuntimeInstructions({
+                            harness: "Muse Code",
+                            model: session.model ?? undefined,
+                            reasoningEffort: effort,
+                          }),
+                        },
+                      ]),
                   ...parts,
                 ],
                 displayText: turnInput.message.text || "Image attachment",
