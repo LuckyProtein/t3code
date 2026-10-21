@@ -1896,6 +1896,18 @@ export const makeMuseAdapterV2 = Effect.fn("makeMuseAdapterV2")(function* (
         );
       });
       /**
+       * The orchestrator prefixes context handoffs to the turn text, and a
+       * summary can quote an earlier `$skill` mention. Only the tail after the
+       * injected "User message:" header is the user's own prompt.
+       */
+      const userAuthoredPrompt = (text: string) => {
+        if (!text.startsWith("Context handoff (")) return text;
+        let start = 0;
+        for (const match of text.matchAll(/\n+User message:\n/gu))
+          start = (match.index ?? 0) + match[0].length;
+        return start === 0 ? text : text.slice(start);
+      };
+      /**
        * The composer inserts `$skill-name` for a picked skill. Muse wants the
        * skill as its own turn part, and it only accepts a selector its own
        * catalog holds, so the mention is resolved against `skill/list`.
@@ -1946,7 +1958,14 @@ export const makeMuseAdapterV2 = Effect.fn("makeMuseAdapterV2")(function* (
           attachments: message.attachments,
           resolveAttachmentPath: providerHost.resolveAttachmentPath,
         });
-        if (text) parts.push({ type: "text", text });
+        const skill = (yield* resolveSkillSelectors(userAuthoredPrompt(text)))[0];
+        if (skill !== undefined) {
+          // Muse admits one skill part per submission and lets it combine with
+          // images only (SS3.2), so the prompt rides on its arguments.
+          parts.push({ type: "skill", selector: skill, ...(text ? { arguments: text } : {}) });
+        } else if (text) {
+          parts.push({ type: "text", text });
+        }
         for (const attachment of message.attachments)
           if (isProviderNativeImageAttachment(attachment)) {
             const path = providerHost.resolveAttachmentPath(attachment);
@@ -1960,11 +1979,8 @@ export const makeMuseAdapterV2 = Effect.fn("makeMuseAdapterV2")(function* (
               mediaType: attachment.mimeType,
             });
           }
-        for (const selector of yield* resolveSkillSelectors(text)) {
-          parts.push({ type: "skill", selector });
-        }
         if (!parts.length) return yield* protocolError("Muse needs text or an image");
-        return parts;
+        return { parts, skillTurn: skill !== undefined };
       });
       const validateThread = (candidate: OrchestrationV2ProviderThread) =>
         thread !== undefined &&
@@ -2004,7 +2020,11 @@ export const makeMuseAdapterV2 = Effect.fn("makeMuseAdapterV2")(function* (
           turnInput.message.creationSource === "provider";
         const adopted = continuation ? wake : undefined;
         const effort = continuation ? undefined : yield* selectionEffort(turnInput.modelSelection);
-        const parts = compact || continuation ? [] : yield* prompt(turnInput.message);
+        const prompted =
+          compact || continuation
+            ? { parts: [], skillTurn: false }
+            : yield* prompt(turnInput.message);
+        const parts = prompted.parts;
         const targetModel = continuation
           ? undefined
           : yield* resolveModel(turnInput.modelSelection);
@@ -2089,14 +2109,18 @@ export const makeMuseAdapterV2 = Effect.fn("makeMuseAdapterV2")(function* (
               "turn/start",
               {
                 input: [
-                  {
-                    type: "text",
-                    text: buildRuntimeInstructions({
-                      harness: "Muse Code",
-                      model: session.model ?? undefined,
-                      reasoningEffort: effort,
-                    }),
-                  },
+                  ...(prompted.skillTurn
+                    ? []
+                    : [
+                        {
+                          type: "text" as const,
+                          text: buildRuntimeInstructions({
+                            harness: "Muse Code",
+                            model: session.model ?? undefined,
+                            reasoningEffort: effort,
+                          }),
+                        },
+                      ]),
                   ...parts,
                 ],
                 displayText: turnInput.message.text || "Image attachment",

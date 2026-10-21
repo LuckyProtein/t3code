@@ -1725,7 +1725,7 @@ describe("MuseAdapterV2", () => {
     }).pipe(Effect.scoped, Effect.provide(testLayer)),
   );
 
-  it.effect("sends a picked skill as its own turn part", () =>
+  it.effect("sends a picked skill as the turn's only part, with the prompt as arguments", () =>
     Effect.gen(function* () {
       const fake = yield* makeFakeMuse();
       fake.queueResponse("skill/list", {
@@ -1742,13 +1742,71 @@ describe("MuseAdapterV2", () => {
       });
       const call = yield* fake.takeCall("turn/start");
       const parts = call.params.input as ReadonlyArray<Record<string, unknown>>;
+      assert.deepStrictEqual(parts, [
+        {
+          type: "skill",
+          selector: "engineer",
+          arguments: "Please use $engineer now",
+        },
+      ]);
+    }).pipe(Effect.scoped, Effect.provide(testLayer)),
+  );
+
+  it.effect("uses only the first of several picked skills", () =>
+    Effect.gen(function* () {
+      const fake = yield* makeFakeMuse();
+      fake.queueResponse("skill/list", {
+        skills: [
+          { selector: "engineer", displayName: "engineer", description: "Start a project." },
+          { selector: "acme:deploy", displayName: "deploy", description: "Deploy it." },
+        ],
+      });
+      const harness = yield* makeHarness(fake);
+      const input = yield* turnInput(harness.providerThread);
+      yield* harness.runtime.startTurn({
+        ...input,
+        message: { ...input.message, text: "$engineer then $acme:deploy" },
+      });
+      const call = yield* fake.takeCall("turn/start");
+      const parts = call.params.input as ReadonlyArray<Record<string, unknown>>;
+      assert.deepStrictEqual(parts, [
+        {
+          type: "skill",
+          selector: "engineer",
+          arguments: "$engineer then $acme:deploy",
+        },
+      ]);
+    }).pipe(Effect.scoped, Effect.provide(testLayer)),
+  );
+
+  it.effect("ignores a skill mention quoted by a context handoff", () =>
+    Effect.gen(function* () {
+      const fake = yield* makeFakeMuse();
+      fake.queueResponse("skill/list", {
+        skills: [
+          {
+            selector: "pstack:setup-pstack",
+            displayName: "setup-pstack",
+            description: "Set up PStack.",
+          },
+        ],
+      });
+      const harness = yield* makeHarness(fake);
+      const input = yield* turnInput(harness.providerThread);
+      const text =
+        "Context handoff (full_thread_summary):\n" +
+        "[Historical user] $pstack:setup-pstack\n\nUser message:\nTest";
+      yield* harness.runtime.startTurn({
+        ...input,
+        message: { ...input.message, text },
+      });
+      const call = yield* fake.takeCall("turn/start");
+      const parts = call.params.input as ReadonlyArray<Record<string, unknown>>;
       assert.deepStrictEqual(
         parts.filter((part) => part.type === "skill"),
-        [{ type: "skill", selector: "engineer" }],
+        [],
       );
-      assert.isTrue(
-        parts.some((part) => part.type === "text" && part.text === "Please use $engineer now"),
-      );
+      assert.isTrue(parts.some((part) => part.type === "text" && part.text === text));
     }).pipe(Effect.scoped, Effect.provide(testLayer)),
   );
 
