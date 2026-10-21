@@ -1857,4 +1857,50 @@ describe("MuseAdapterV2", () => {
       );
     }).pipe(Effect.scoped, Effect.provide(testLayer)),
   );
+
+  it.effect("survives a kind-less observation item without publishing it", () =>
+    Effect.gen(function* () {
+      const fake = yield* makeFakeMuse();
+      const harness = yield* makeHarness(fake);
+      const { nativeId } = yield* startConversation(harness, fake);
+      yield* fake.emit("item/completed", {
+        turnId: nativeId,
+        item: {
+          itemId: "skill-read-marker",
+          turnId: nativeId,
+          status: "completed",
+          revision: 1,
+        },
+      });
+      yield* fake.emit("item/completed", {
+        turnId: nativeId,
+        item: {
+          itemId: "answer",
+          turnId: nativeId,
+          kind: "agentMessage",
+          status: "completed",
+          revision: 1,
+          text: "Done",
+        },
+      });
+      yield* fake.emit("turn/completed", { turnId: nativeId, terminal: "completed" });
+      const terminal = yield* harness.takeEvent("turn.terminal");
+      assert.strictEqual(terminal.status, "completed");
+      assert.isTrue(
+        harness.allEvents.some(
+          (event) =>
+            event.type === "message.updated" &&
+            !event.message.streaming &&
+            event.message.text === "Done",
+        ),
+      );
+      assert.isFalse(
+        harness.allEvents.some(
+          (event) =>
+            event.type === "turn_item.updated" &&
+            event.turnItem.nativeItemRef?.nativeId === "skill-read-marker",
+        ),
+      );
+    }).pipe(Effect.scoped, Effect.provide(testLayer)),
+  );
 });

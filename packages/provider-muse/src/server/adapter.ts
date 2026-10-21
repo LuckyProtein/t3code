@@ -701,6 +701,19 @@ export const makeMuseAdapterV2 = Effect.fn("makeMuseAdapterV2")(function* (
       ) {
         // Muse's skill-reminder child runs on every model step; it is housekeeping, not work.
         if (item.kind === "userMessage" || item.kind === "reminderChild") return;
+        // A kind-less marker with nothing to render is tracked but never published.
+        if (
+          item.kind === undefined &&
+          item.tool === undefined &&
+          item.text === undefined &&
+          item.summary === undefined &&
+          item.fallbackText === undefined &&
+          item.visibleOutput === undefined &&
+          item.result === undefined &&
+          item.finalSummary === undefined &&
+          item.objective === undefined
+        )
+          return;
         if (
           item.kind === "toolCall" &&
           item.tool &&

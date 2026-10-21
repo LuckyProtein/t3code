@@ -31,7 +31,8 @@ export const MuseItem = Schema.Struct({
   ),
   finalSummary: Schema.optional(Schema.String),
   itemId: NonEmptyString,
-  kind: NonEmptyString,
+  // Observation markers such as a skill read arrive without a kind.
+  kind: Schema.optional(NonEmptyString),
   revision: Schema.Int.check(Schema.isGreaterThan(0)),
   status: NonEmptyString,
   turnId: Schema.optional(Schema.NullOr(Schema.String)),

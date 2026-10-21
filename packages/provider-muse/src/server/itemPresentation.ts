@@ -65,7 +65,7 @@ export function museToolPresentation(
     }
     return undefined;
   };
-  const toolName = item.tool ?? item.kind;
+  const toolName = item.tool ?? item.kind ?? "";
   const title =
     item.kind === "subagent"
       ? item.objective || item.role || "Muse agent"
